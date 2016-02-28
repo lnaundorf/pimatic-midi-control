@@ -1,0 +1,48 @@
+{
+  "pimatic": {
+    "host": "192.168.0.XX",
+    "port": 80,
+    "username": "admin",
+    "password": "admin"
+  },
+  "midi": {
+    "port_in": 0,
+    "port_out": 1,
+    "pads": {
+      "type_on": 144,
+      "type_off": 128,
+      "devices": [
+        {
+          "device_id": "device-1",
+          "midi_port": 36
+        },
+        {
+          "device_id": "device-2",
+          "midi_port": 37
+        }
+      ]
+    },
+    "knobs": {
+      "type": 176,
+      "min_value": 0,
+      "max_value": 128,
+      "accept_time_ms": 200,
+      "devices": [
+        {
+          "device_id": "knob-device-1",
+          "midi_port": 1,
+          "attribute": "temperatureSetpoint",
+          "action": "changeTemperatureTo",
+          "step": 0.5
+        },
+        {
+          "device_id": "knob-device-2",
+          "midi_port": 2,
+          "attribute": "temperatureSetpoint",
+          "action": "changeTemperatureTo",
+          "step": 0.5
+        }
+      ]
+    }
+  }
+}
