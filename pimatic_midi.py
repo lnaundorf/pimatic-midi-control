@@ -5,6 +5,7 @@ from threading import Thread, Event
 from socketIO_client import SocketIO, LoggingNamespace
 import time
 import json
+import os
 
 
 class Update:
@@ -17,7 +18,7 @@ class PimaticMidiController:
         self._debug = debug
         self._load_config(settings)
         if self._debug:
-            print "Configuration: %s" % json.dumps(self._config, sort_keys=True, indent=4)
+            print("Configuration: %s" % json.dumps(self._config, sort_keys=True, indent=4))
 
         self._connect_socket_io()
         self._setup_midi_ports()
@@ -25,7 +26,7 @@ class PimaticMidiController:
     def _load_config(self, settings):
         if isinstance(settings, dict):
             self._config = settings
-        elif isinstance(settings, basestring):
+        elif isinstance(settings, str):
             # Load settings from a JSON file
             self._config = {}
 
@@ -71,7 +72,7 @@ class PimaticMidiController:
                         for dev in knob_devices:
                             self._add_device_to_config(dev, "knob")
         else:
-            print "Unknown settings type: %s" % type(settings)
+            print("Unknown settings type: %s" % type(settings))
 
     def _add_device_to_config(self, dev, type):
         device_id = dev.get('device_id', None)
@@ -81,7 +82,7 @@ class PimaticMidiController:
         action = dev.get('action', 'changeStateTo')
 
         if device_id and midi_port:
-            print "Add %s device %s on midi port %d" % (type, device_id, midi_port)
+            print("Add %s device %s on midi port %d" % (type, device_id, midi_port))
             self._config['pimatic_midi_mapping'].append({
                 'type': type,
                 'device_id': device_id,
@@ -116,7 +117,11 @@ class PimaticMidiController:
         self._stop_midi_in = Event()
 
         def midi_read(socket_io, stop):
-            midi_in = rtmidi_python.MidiIn()
+            midi_in = rtmidi_python.MidiIn(b'in')
+            if self._debug:
+                for port in midi_in.ports:
+                    print("In Port: %s" % port)
+
             midi_in.open_port(self._config['midi_port_in'])
 
             knob_temp_values = {}
@@ -124,9 +129,8 @@ class PimaticMidiController:
             while not self._stop_midi_in.is_set():
                 now = time.time()
                 keys_to_delete = []
-                for knob_key, knob_value in knob_temp_values.iteritems():
+                for knob_key, knob_value in knob_temp_values.items():
                     if now - knob_value['time'] >= self._config['knob_accept_time_ms'] / 1000:
-                        # print "Fire knob change"
                         # Fire the knob change event
                         new_value = self.compute_knob_value(knob_key, knob_value['value'])
                         device_id, value_change = self._set_value_by_key(
@@ -154,22 +158,29 @@ class PimaticMidiController:
                         )
                     elif message[0] == self._config['knob_type']:
                         # A knob was changed
-                        # print "Knob was changed: %s" % message
+                        # print("Knob was changed: %s" % message)
                         knob_temp_values[message[1]] = {
                             'value': message[2],
                             'time': time.time()
                         }
 
                     elif self._debug:
-                        print "Unrecognized midi input: %s" % message
+                        print("Unrecognized midi input: %s" % message)
 
                 time.sleep(0.01)
 
         midi_read_thread = Thread(target=midi_read, args=(self._socket_io, self._stop_midi_in))
         midi_read_thread.start()
 
-        self._midi_out = rtmidi_python.MidiOut()
+        # There seems to be a timing issue if we dont sleep here
+        time.sleep(0.1)
+
+        self._midi_out = rtmidi_python.MidiOut(b'out')
+        if self._debug:
+            for port in self._midi_out.ports:
+                print("Out Port: %s" % port)
         self._midi_out.open_port(self._config['midi_port_out'])
+
 
     def compute_knob_value(self, midi_port, value):
         dev = self._search_device_by_key('midi_port', midi_port)
@@ -179,7 +190,7 @@ class PimaticMidiController:
 
         knob_value = dev['min_value'] + ((value - self._config['knob_min_value']) / self._config['knob_max_value']) * (dev['max_value'] - dev['min_value'])
 
-        # print "Knob value: %s" % knob_value
+        # print("Knob value: %s" % knob_value)
         # Round with respect to 'step'
         return round(knob_value / dev['step']) * dev['step']
 
@@ -209,7 +220,7 @@ class PimaticMidiController:
             if Update.MIDI in update_types:
                 # Update the midi light state
                 if self._debug:
-                    print "Send midi message, Port: %s, State: %s" % (dev['midi_port'], new_value)
+                    print("Send midi message, Port: %s, State: %s" % (dev['midi_port'], new_value))
                 self._midi_out.send_message([self._config['midi_pad_on'], dev['midi_port'], new_value])
 
             if Update.PIMATIC in update_types:
@@ -224,11 +235,11 @@ class PimaticMidiController:
                     }
                 }
                 if self._debug:
-                    print "Call Pimatic: %s" % json.dumps(call_dict, indent=4)
+                    print("Call Pimatic: %s" % json.dumps(call_dict, indent=4))
                 self._socket_io.emit('call', call_dict)
 
         if value_change:
-            print "Changed value of %s to %s" % (dev['device_id'], new_value)
+            print("Changed %s of %s to %s" % (dev['attribute'], dev['device_id'], new_value))
 
         return dev['device_id'], value_change
 
@@ -241,14 +252,14 @@ class PimaticMidiController:
         return False
 
     def _on_connect(self):
-        print "Connected to SocketIO on %s:%s" % (self._config['pimatic_host'], self._config['pimatic_port'])
+        print("Connected to SocketIO on %s:%s" % (self._config['pimatic_host'], self._config['pimatic_port']))
 
     def _on_disconnect(self):
-        print "Disconnected from SocketIO on %s:%s" % (self._config['pimatic_host'], self._config['pimatic_port'])
+        print("Disconnected from SocketIO on %s:%s" % (self._config['pimatic_host'], self._config['pimatic_port']))
 
     def _on_call_result(self, data):
         if self._debug:
-            print "CallResult: %s" % json.dumps(data, indent=4)
+            print("CallResult: %s" % json.dumps(data, indent=4))
 
     def _on_devices(self, data):
         for device in data:
@@ -269,10 +280,10 @@ class PimaticMidiController:
             )
 
             if self._debug:
-                print "Update device %s: %s - %s" % (device_id, min_value, max_value)
+                print("Update device %s: %s - %s" % (device_id, min_value, max_value))
 
         if self._debug:
-            print "Config after devices: %s" % json.dumps(self._config, indent=4, sort_keys=True)
+            print("Config after devices: %s" % json.dumps(self._config, indent=4, sort_keys=True))
 
     def _on_device_attribute_changed(self, data):
         device_id, value_change = self._set_value_by_key(
@@ -284,7 +295,7 @@ class PimaticMidiController:
         )
 
         if device_id and value_change:
-            print "Device attribute changed: %s" % json.dumps(data, indent=4)
+            print("Device attribute changed: %s" % json.dumps(data, indent=4))
 
     def run_forever(self):
         try:
@@ -294,3 +305,17 @@ class PimaticMidiController:
 
     def stop(self):
         self._stop_midi_in.set()
+
+
+if __name__ == "__main__":
+    debug = False
+
+    __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
+    settings_filename = os.path.join(__location__, "settings.json")
+
+    pimatic_midi_controller = PimaticMidiController(
+        settings=settings_filename,
+        debug=debug
+    )
+
+    pimatic_midi_controller.run_forever()

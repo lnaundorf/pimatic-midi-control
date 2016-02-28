@@ -1,2 +1,2 @@
 rtmidi-python >= 0.2.2
-websocket-client >= 0.35.0
+socketIO-client >= 0.6.5
